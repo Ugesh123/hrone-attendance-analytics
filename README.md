@@ -1,3 +1,4 @@
+https://hrone-attendance-analytics.vercel.app(FRONTENT ONLY)
 # Employee Attendance & Analytics API
 
 A FastAPI application backed by MongoDB for employee management, attendance tracking, attendance regularization, and analytics.

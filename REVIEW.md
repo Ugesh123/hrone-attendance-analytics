@@ -2,51 +2,44 @@
 
 ## Starter Code Review
 
-The following table records the starter-code risks and the corresponding
-implementation areas to verify. A passing test suite does not, by itself,
-prove every edge case listed here.
+The following table summarizes the implementation fixes reviewed in `app/main.py`. The automated test suite passed 12 tests; this does not independently verify every possible edge case.
 
-| # | Where | Issue identified in starter code | Fix / verification required |
+| # | Area | Issue | Implementation |
 |---|---|---|---|
-| 1 | `health()` | The health endpoint may report success without checking MongoDB connectivity. | Check database connectivity before reporting healthy; verify behavior when MongoDB is unavailable. |
-| 2 | `create_employee()` | Checking for an existing employee before inserting is vulnerable to concurrent requests. | Enforce uniqueness with a MongoDB unique index and handle duplicate-key errors. |
-| 3 | `create_employee()` | Naive local timestamps can cause timezone ambiguity. | Use timezone-aware UTC timestamps for audit fields. |
-| 4 | `list_employees()` | Incorrect pagination offsets can skip or repeat records. | Calculate the offset from the validated page and page size. |
-| 5 | `list_employees()` | The reported total may not reflect the active department filter. | Apply the same filters to the count query and the paginated query. |
-| 6 | `list_employees()` | Invalid page numbers or page sizes can produce unexpected queries. | Validate pagination inputs and reject invalid values. |
-| 7 | `punch_in()` | Unknown employee codes must not create attendance records. | Validate employee existence and return an appropriate client error for unknown employees. |
-| 8 | `punch_in()` | Timestamp handling must preserve epoch value `0` and use the required timezone rules. | Distinguish a missing timestamp from zero and validate timestamp conversion. |
-| 9 | `punch_in()` | Overnight shifts can be assigned to the wrong attendance date if dates are derived incorrectly. | Apply the assignment's attendance-date and timezone rules consistently. |
-| 10 | `punch_in()` | A check-then-insert flow alone cannot prevent duplicate daily attendance records. | Use the unique `(emp_code, date)` index and handle duplicate-key conflicts. |
-| 11 | `punch_in()` | Invalid timestamps or attendance states can create inconsistent records. | Validate request values and reject invalid state transitions. |
-| 12 | `list_attendance()` | Loading every matching document before pagination wastes memory. | Apply filtering, deterministic sorting, skip, and limit in MongoDB. |
-| 13 | `list_attendance()` | Internal database fields should not leak into API responses unless the contract permits them. | Return only the response fields defined by the API contract. |
-| 14 | `list_attendance()` | Sorting without a stable secondary key can make pagination inconsistent. | Add a deterministic tie-breaker to the sort. |
-| 15 | `compute_late_minutes()` | Grace-period boundaries and overnight schedules require explicit handling. | Verify the calculation against the assignment's schedule and grace-period rules. |
-| 16 | `compute_work_hours()` | Python's default rounding may differ from the contract's required rounding mode. | Use the specified rounding rule and test boundary values. |
-| 17 | `compute_overtime()` | Overtime calculations must respect overnight schedules and the minimum qualifying duration. | Verify the 29-minute and 30-minute boundaries and overnight cases. |
-| 18 | API routes | Punch-out, regularization, analytics, and explain functionality are required by the contract. | Compare registered routes and their response schemas against `openapi.yaml`. |
+| 1 | `health()` | Health status must reflect database connectivity. | Added a MongoDB ping and return HTTP 503 when the database is unavailable. |
+| 2 | `create_employee()` | Concurrent requests can create duplicate employees. | Use the unique employee-code index and handle duplicate-key errors with HTTP 409. |
+| 3 | `create_employee()` | Naive timestamps create timezone ambiguity. | Store `created_at` as a timezone-aware UTC timestamp. |
+| 4 | `list_employees()` | Pagination offsets must be consistent. | Calculate the offset from the validated page and page size. |
+| 5 | `list_employees()` | Totals must respect department filters. | Apply the same employee filters to the count and listing queries. |
+| 6 | `list_employees()` | Invalid pagination parameters can cause unexpected queries. | Validate page and page size through FastAPI query constraints. |
+| 7 | `punch_in()` | Unknown employees must not receive attendance records. | Check employee existence and return HTTP 404 when missing. |
+| 8 | `punch_in()` | Epoch timestamp zero must not be treated as a missing timestamp. | Check explicitly for `None` before converting epoch milliseconds. |
+| 9 | `punch_in()` | Overnight shifts need consistent attendance dates. | Derive the attendance date through `attendance_day()` using the employee schedule. |
+| 10 | `punch_in()` | Concurrent punch-ins must not create duplicate daily records. | Use the unique `(emp_code, date)` index and return HTTP 409 on duplicate-key conflicts. |
+| 11 | Attendance operations | Invalid timestamps and state transitions must be rejected. | Validate employee existence, timestamp ordering, duration limits, and regularization inputs. |
+| 12 | `list_attendance()` | Loading all records before pagination wastes memory. | Apply filters, sorting, skip, and limit in MongoDB. |
+| 13 | `list_attendance()` | Database documents must be serialized to the API response contract. | Use the record serialization helper when returning attendance records. |
+| 14 | `list_attendance()` | Pagination requires deterministic sorting. | Sort by date and employee code. |
+| 15 | `compute_late_minutes()` | Grace periods and overnight schedules require explicit handling. | Implement the calculation in a dedicated helper; see the automated tests for covered boundaries. |
+| 16 | `compute_work_hours()` | Rounding must follow the specified rule. | Use the dedicated half-up rounding helper. |
+| 17 | `compute_overtime()` | Overtime must respect qualifying duration and shift schedules. | Implement overtime calculation in a dedicated helper; see the automated tests for covered boundaries. |
+| 18 | API routes | Required attendance and analytics operations must be available. | Implement punch-out, regularization, monthly analytics, department summaries and trends, leaderboard, and explain routes. |
 
 ## Concurrency and database safeguards
 
-- A unique employee-code index prevents duplicate employee records.
-- A unique `(emp_code, date)` attendance index protects against duplicate daily attendance inserts.
-- Punch-out should use a conditional update so competing requests cannot both close the same attendance record.
-- Regularization should use a conditional update and append an audit-history entry as part of the same database operation.
-- Index creation should be idempotent so application startup can safely create the required indexes.
+- Unique indexes protect employee codes and daily attendance records against duplicates.
+- Punch-out uses a conditional update so concurrent requests cannot both close the same record.
+- Regularization uses a conditional update and appends an audit-history entry in the same database operation.
+- Analytics endpoints and the admin explain endpoint reuse pipeline-building functions.
 
 ## Existing automated test results
 
-The current local test run completed with **12 passed** and one
-`PendingDeprecationWarning` originating from Starlette's multipart import.
-The warning is not a test failure.
+The local test run completed with **12 passed** and one `PendingDeprecationWarning` from Starlette's multipart import. The warning is not a test failure.
 
-These tests establish that the covered test cases pass. They do not establish
-that every edge case in the table above has been independently tested.
+Passing tests establish only that the covered cases pass. They do not prove every edge case or replace verification against a running MongoDB instance and the complete assignment requirements.
 
-## Not a defect by itself
+## Remaining verification
 
-- Using `emp_code` as the employee identifier is consistent with the data model; MongoDB `_id` can remain an internal field.
-- Storing calendar dates as `YYYY-MM-DD` strings is valid when used consistently with the assignment's date rules.
-- Returning `null` for `work_hours` before punch-out is appropriate when work duration cannot yet be calculated.
-- Maintaining attendance history for manual corrections supports auditability.
+- Confirm database index definitions and startup behavior against the running environment.
+- Verify analytics results against the assignment's sample data.
+- Confirm all API response schemas against `openapi.yaml`.

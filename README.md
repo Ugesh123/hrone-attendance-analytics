@@ -73,9 +73,8 @@ The React + Vite + TypeScript frontend is optional. The API can be run and teste
 ## What's missing
 
 - The frontend requires the API backend to be running and reachable to display live data. A frontend-only deployment does not provide live API functionality.
-- No other known omissions are documented here; verify against the assignment requirements before submission.
+- The API capabilities are documented in `openapi.yaml`. The frontend requires a running, reachable backend to display live data.
 
 ## Submission notes
 
 Commit the application code, tests, requirements, and documentation. Do not commit secrets, local virtual environments, or machine-specific configuration.
-
